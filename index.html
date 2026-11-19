@@ -107,9 +107,24 @@ h1{text-transform:none;font-size:clamp(3.4rem,20vw,5rem);letter-spacing:0;line-h
     <div class="days" id="days"></div>
     <div class="slots" id="slots"></div>
     <p class="note" data-i="slotNote">Pick a free slot, then choose your preferred time within it. Struck-through slots are full.</p>
-    <div class="own" id="own">
-      <label style="margin:0;color:inherit"><input type="checkbox" id="ownMode" style="width:auto"> Chế độ chủ tiệm: bấm vào giờ để đánh dấu kín/trống</label>
-      <button class="btn primary" id="ownSave" style="margin-top:8px;display:none">Lưu lịch</button>
+    <div class="own" id="own" style="display:block">
+      <button class="btn" type="button" id="ownerLogin">Owner login</button>
+      <div id="ownerPanel" style="display:none">
+        <p id="ownerStatus" class="note" style="margin:8px 0">Đã đăng nhập chế độ chủ tiệm.</p>
+        <label style="margin:0;color:inherit"><input type="checkbox" id="ownMode" style="width:auto"> Chế độ chủ tiệm: bấm vào giờ để đánh dấu kín/trống</label>
+        <button class="btn primary" id="ownSave" type="button" style="margin-top:8px;display:none">Lưu lịch online</button>
+        <button class="btn" type="button" id="ownerLogout" style="margin-top:8px">Đăng xuất</button>
+      </div>
+      <div id="ownerLoginForm" style="display:none">
+        <label for="ownerEmail">Email chủ tiệm</label>
+        <input id="ownerEmail" type="email" autocomplete="username" placeholder="owner@example.com">
+        <label for="ownerPassword">Mật khẩu</label>
+        <input id="ownerPassword" type="password" autocomplete="current-password">
+        <button class="btn primary" type="button" id="ownerSignIn" style="margin-top:12px">Đăng nhập</button>
+        <button class="btn" type="button" id="ownerCancel" style="margin-top:8px">Đóng</button>
+        <p id="ownerError" class="err" role="alert"></p>
+      </div>
+      <p class="note" id="syncStatus">Lịch được đồng bộ trực tuyến khi Supabase đã được cấu hình.</p>
     </div>
     <script type="application/json" id="state">{"full":["2026-11-28|09:00","2026-11-28|13:00","2026-11-28|18:00"]}</script>
   </div>
@@ -147,12 +162,17 @@ h1{text-transform:none;font-size:clamp(3.4rem,20vw,5rem);letter-spacing:0;line-h
   <p class="foot" id="addr">Address / area</p>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* ====== CHỈNH THÔNG TIN CỦA BẠN Ở ĐÂY ====== */
 var CFG = {
   name: "ann.lab",
   
   instagram: "annlab.paris",
+  // Supabase: điền URL, anon key và email tài khoản chủ tiệm sau khi tạo project.
+  supabaseUrl: "YOUR_SUPABASE_URL",
+  supabaseAnonKey: "YOUR_SUPABASE_ANON_KEY",
+  ownerEmail: "YOUR_OWNER_EMAIL",
   address: {fr:"47 Rue de Domrémy, 75013 Paris", en:"47 Rue de Domrémy, 75013 Paris"},
   slots: [ // mỗi ngày 3 slot: k = giờ bắt đầu, to = giờ kết thúc của khung giờ
     {k:"09:00", to:"10:00", n:{fr:"Matin",en:"Morning"}},
@@ -202,9 +222,42 @@ function pr(p){return typeof p==="string"?p:p[L]}
 
 var state;try{state=JSON.parse($("state").textContent)}catch(e){state={full:[]}}
 var full=new Set(state.full||[]);
+var db=null, ownerUser=null, scheduleChannel=null;
+var SUPABASE_READY = !!(window.supabase && CFG.supabaseUrl.indexOf("https://")===0 &&
+  CFG.supabaseAnonKey && CFG.supabaseAnonKey!=="YOUR_SUPABASE_ANON_KEY");
+if(SUPABASE_READY){try{db=window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey)}catch(e){db=null}}
+function setSyncStatus(message,isError){
+  var el=$("syncStatus");if(!el)return;
+  el.textContent=message;el.style.color=isError?"#c0392b":"";
+}
+async function loadOnlineSchedule(){
+  if(!db)return;
+  var result=await db.from("studio_schedule").select("full").eq("id",1).maybeSingle();
+  if(result.error)throw result.error;
+  if(result.data && Array.isArray(result.data.full)){full=new Set(result.data.full);renderSlots()}
+}
+function applyOwnerSession(user){
+  ownerUser=user||null;
+  $("ownerPanel").style.display=ownerUser?"block":"none";
+  $("ownerLoginForm").style.display="none";
+  $("ownerLogin").style.display=ownerUser?"none":"block";
+  if(!ownerUser){owner=false;$("ownMode").checked=false;renderSlots()}
+  if(ownerUser){$("ownerStatus").textContent="Connecté : "+(ownerUser.email||"compte propriétaire");$("syncStatus").textContent="Synchronisation en ligne activée."}
+}
+async function startRealtimeSync(){
+  if(!db)return;
+  if(scheduleChannel)db.removeChannel(scheduleChannel);
+  scheduleChannel=db.channel("studio-schedule-live")
+    .on("postgres_changes",{event:"*",schema:"public",table:"studio_schedule",filter:"id=eq.1"},function(payload){
+      if(payload.new && Array.isArray(payload.new.full)){
+        full=new Set(payload.new.full);renderSlots();
+        setSyncStatus("Planning synchronisé — dernière mise à jour reçue.");
+      }
+    }).subscribe();
+}
 function ymd(d){var t=new Date(d);t.setMinutes(t.getMinutes()-t.getTimezoneOffset());return t.toISOString().slice(0,10)}
 var dayList=[];for(var i=0;i<14;i++){var dd=new Date();dd.setDate(dd.getDate()+i);dayList.push(dd)}
-var selDay=null,owner=false,chosen=null,artifactNS=null,text="";
+var selDay=null,owner=false,chosen=null,text="";
 dayList.some(function(d){if(CFG.offDays.indexOf(d.getDay())<0){selDay=ymd(d);return true}});
 function renderDays(){
   $("days").innerHTML=dayList.map(function(d){var k=ymd(d),off=CFG.offDays.indexOf(d.getDay())>=0;
@@ -234,7 +287,7 @@ document.querySelector(".lang").onclick=function(e){var b=e.target.closest("butt
 $("days").onclick=function(e){var b=e.target.closest(".day");if(!b||b.disabled)return;selDay=b.dataset.k;renderDays();renderSlots()};
 $("slots").onclick=function(e){
   var b=e.target.closest(".slot");if(!b)return;var h=b.dataset.h,key=selDay+"|"+h;
-  if(owner){if(full.has(key))full.delete(key);else full.add(key);$("ownSave").style.display="block";renderSlots();return}
+  if(owner && ownerUser){if(full.has(key))full.delete(key);else full.add(key);$("ownSave").style.display="block";renderSlots();return}
   if(b.classList.contains("full"))return;
   chosen=key;$("fdate").value=selDay;$("ftime").value=h;renderSlots();
   $("dat-lich").scrollIntoView({behavior:"smooth"});
@@ -258,28 +311,54 @@ $("go").onclick=function(){
 };
 
 $("sIG").onclick=function(){copy(text);window.open("https://ig.me/m/"+CFG.instagram,"_blank")};
-(async function(){try{
-  if(!window.claude)return;
-  var u=await claude.use("user");if(!u||!u.isOwner())return;
-  artifactNS=await claude.use("artifact");if(!artifactNS)return;
-  $("own").style.display="block";
-}catch(e){}})();
-$("ownMode").onchange=function(){owner=this.checked;renderSlots()};
+// Accès propriétaire via Supabase Auth.
+$("ownerLogin").onclick=function(){
+  if(!SUPABASE_READY||!db){setSyncStatus("Configuration Supabase manquante : renseignez l'URL et la clé anon dans CFG.",true);return}
+  $("ownerLoginForm").style.display="block";$("ownerError").style.display="none";
+  $("ownerEmail").value=CFG.ownerEmail!=="YOUR_OWNER_EMAIL"?CFG.ownerEmail:"";
+};
+$("ownerCancel").onclick=function(){$("ownerLoginForm").style.display="none"};
+$("ownerSignIn").onclick=async function(){
+  var email=$("ownerEmail").value.trim(),password=$("ownerPassword").value;
+  $("ownerError").style.display="none";
+  if(!email||!password){$("ownerError").textContent="Veuillez saisir votre email et votre mot de passe.";$("ownerError").style.display="block";return}
+  var btn=this;btn.disabled=true;btn.textContent="Connexion…";
+  try{
+    var result=await db.auth.signInWithPassword({email:email,password:password});
+    if(result.error)throw result.error;
+    if(CFG.ownerEmail!=="YOUR_OWNER_EMAIL" && email.toLowerCase()!==CFG.ownerEmail.toLowerCase()){
+      await db.auth.signOut();throw new Error("Ce compte n'est pas autorisé comme propriétaire.");
+    }
+    applyOwnerSession(result.data.user);$("ownerPassword").value="";
+    setSyncStatus("Connexion réussie. Vous pouvez modifier le planning.");
+  }catch(e){$("ownerError").textContent=e.message||"Connexion impossible.";$("ownerError").style.display="block"}
+  finally{btn.disabled=false;btn.textContent="Đăng nhập"}
+};
+$("ownerLogout").onclick=async function(){if(db)await db.auth.signOut();applyOwnerSession(null);setSyncStatus("Vous êtes déconnecté.")};
+$("ownMode").onchange=function(){owner=!!ownerUser&&this.checked;renderSlots()};
 $("ownSave").onclick=async function(){
+  if(!db||!ownerUser){setSyncStatus("Veuillez vous connecter avant d'enregistrer.",true);return}
   var btn=this;btn.disabled=true;btn.textContent="Đang lưu…";
   try{
-    var c=document.documentElement.cloneNode(true);
-    c.removeAttribute("data-theme");c.removeAttribute("style");c.setAttribute("lang","fr");
-    c.querySelectorAll("grammarly-desktop-integration,[data-grammarly-shadow-root]").forEach(function(x){x.remove()});
-    c.querySelectorAll("*").forEach(function(x){Array.from(x.attributes).forEach(function(a){if(/^data-gr/.test(a.name))x.removeAttribute(a.name)})});
-    ["services","fsvc","days","slots","msg"].forEach(function(id){var el=c.querySelector("#"+id);if(el)el.innerHTML=""});
-    ["out","own"].forEach(function(id){var el=c.querySelector("#"+id);if(el)el.removeAttribute("style")});
-    var om=c.querySelector("#ownMode");if(om)om.removeAttribute("checked");
-    var sv=c.querySelector("#ownSave");if(sv){sv.setAttribute("style","margin-top:8px;display:none");sv.removeAttribute("disabled");sv.textContent="Lưu lịch"}
-    c.querySelector("#state").textContent=JSON.stringify({full:Array.from(full).sort()});
-    await artifactNS.publish("<!DOCTYPE html>\n"+c.outerHTML);
-  }catch(e){btn.disabled=false;btn.textContent="Lưu lịch";alert("Không lưu được, vui lòng thử lại.")}
+    var values=Array.from(full).sort();
+    var result=await db.from("studio_schedule").update({full:values,updated_at:new Date().toISOString()}).eq("id",1).select("id");
+    if(result.error)throw result.error;
+    if(!result.data||!result.data.length)throw new Error("Aucune ligne mise à jour. Vérifiez la ligne id=1 et les règles RLS Supabase.");
+    $("state").textContent=JSON.stringify({full:values});$("ownSave").style.display="none";
+    setSyncStatus("Đã lưu thành công. Lịch sẽ tự đồng bộ trên các thiết bị khác.");
+  }catch(e){setSyncStatus("Lỗi lưu lịch: "+(e.message||"Vui lòng thử lại."),true)}
+  finally{btn.disabled=false;btn.textContent="Lưu lịch online"}
 };
+(async function(){
+  if(!SUPABASE_READY||!db){setSyncStatus("Chưa cấu hình Supabase — lịch hiện chỉ đọc dữ liệu mặc định trong file.");return}
+  try{
+    var session=await db.auth.getSession();
+    if(session.data&&session.data.session)applyOwnerSession(session.data.session.user);
+    await loadOnlineSchedule();await startRealtimeSync();
+    db.auth.onAuthStateChange(function(event,session){applyOwnerSession(session?session.user:null)});
+    setSyncStatus("Đã kết nối lịch online.");
+  }catch(e){setSyncStatus("Không tải được lịch online: "+(e.message||"Kiểm tra cấu hình Supabase."),true)}
+})();
 function tick(){var d=new Date();$("today").textContent=String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear()}
 tick();setInterval(tick,60000);
 function fadeTop(){var y=window.scrollY||document.documentElement.scrollTop||0;$("fade").style.opacity=Math.max(0,Math.min(1,y/160))}
