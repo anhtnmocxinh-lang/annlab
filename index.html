@@ -59,7 +59,8 @@ input:focus,select:focus,textarea:focus{border-bottom-color:var(--ink)}
 .slot{display:flex;justify-content:space-between;padding:13px 18px;border:1px solid var(--ink);border-radius:999px;background:transparent;color:var(--text);font:inherit;font-size:.85rem;cursor:pointer}
 .slot.full{border-color:var(--line);color:var(--muted);text-decoration:line-through}
 .slot.chosen{background:var(--ink);color:var(--paper)}
-.own{display:none;margin-top:16px;padding:12px;border:1px dashed var(--line);font-size:.78rem}
+.own{display:block;margin-top:16px;padding:12px;border:1px dashed var(--line);font-size:.78rem}
+#ownerBookings a{color:var(--text);text-decoration:underline}#ownerBookings select,#ownerServices input{font-size:13px;text-transform:none}#ownerServices label{margin-top:8px}
 
 h1{text-transform:none;font-size:clamp(3.4rem,20vw,5rem);letter-spacing:0;line-height:1}
 .logo{display:block;width:min(80%,320px);height:auto}
@@ -111,8 +112,11 @@ h1{text-transform:none;font-size:clamp(3.4rem,20vw,5rem);letter-spacing:0;line-h
       <button class="btn" type="button" id="ownerLogin">Owner login</button>
       <div id="ownerPanel" style="display:none">
         <p id="ownerStatus" class="note" style="margin:8px 0">Đã đăng nhập chế độ chủ tiệm.</p>
-        <label style="margin:0;color:inherit"><input type="checkbox" id="ownMode" style="width:auto"> Chế độ chủ tiệm: bấm vào giờ để đánh dấu kín/trống</label>
-        <button class="btn primary" id="ownSave" type="button" style="margin-top:8px;display:none">Lưu lịch online</button>
+        <h2>Booking requests</h2>
+        <div id="ownerBookings" class="note">Loading…</div>
+        <h2 style="margin-top:24px">Services &amp; prices</h2>
+        <div id="ownerServices" class="note">Loading…</div>
+        <button class="btn" type="button" id="ownerRefresh" style="margin-top:8px">Refresh dashboard</button>
         <button class="btn" type="button" id="ownerLogout" style="margin-top:8px">Đăng xuất</button>
       </div>
       <div id="ownerLoginForm" style="display:none">
@@ -126,7 +130,7 @@ h1{text-transform:none;font-size:clamp(3.4rem,20vw,5rem);letter-spacing:0;line-h
       </div>
       <p class="note" id="syncStatus">Lịch được đồng bộ trực tuyến khi Supabase đã được cấu hình.</p>
     </div>
-    <script type="application/json" id="state">{"full":["2026-11-28|09:00","2026-11-28|13:00","2026-11-28|18:00"]}</script>
+    
   </div>
 
   <div class="card" id="dat-lich">
@@ -137,6 +141,8 @@ h1{text-transform:none;font-size:clamp(3.4rem,20vw,5rem);letter-spacing:0;line-h
     <input id="figr" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
     <label for="fphone" data-i="lPhone">Phone</label>
     <input id="fphone" type="tel" autocomplete="tel" placeholder="+33 6 xx xx xx xx">
+    <label for="femail">Email (optional)</label>
+    <input id="femail" type="email" autocomplete="email" placeholder="name@example.com">
     <label for="fsvc" data-i="lSvc">Service</label>
     <select id="fsvc"></select>
     <div class="row">
@@ -164,209 +170,96 @@ h1{text-transform:none;font-size:clamp(3.4rem,20vw,5rem);letter-spacing:0;line-h
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-/* ====== CHỈNH THÔNG TIN CỦA BẠN Ở ĐÂY ====== */
+/* ===== ann.lab — Supabase integration v2 ===== */
 var CFG = {
   name: "ann.lab",
-  
   instagram: "annlab.paris",
-  // Supabase: điền URL, anon key và email tài khoản chủ tiệm sau khi tạo project.
-  supabaseUrl: "YOUR_SUPABASE_URL",
-  supabaseAnonKey: "YOUR_SUPABASE_ANON_KEY",
-  ownerEmail: "YOUR_OWNER_EMAIL",
-  address: {fr:"47 Rue de Domrémy, 75013 Paris", en:"47 Rue de Domrémy, 75013 Paris"},
-  slots: [ // mỗi ngày 3 slot: k = giờ bắt đầu, to = giờ kết thúc của khung giờ
-    {k:"09:00", to:"10:00", n:{fr:"Matin",en:"Morning"}},
-    {k:"13:00", to:"14:00", n:{fr:"Après-midi",en:"Afternoon"}},
-    {k:"18:00", to:"18:30", n:{fr:"Soir",en:"Evening"}}
-  ],
-  offDays: [], // ngày nghỉ: 0 = Chủ nhật, 1 = Thứ hai, ... (để trống = làm cả tuần)
-  services: [
-    {n:{fr:"Pose gel",en:"Gel polish"}, p:"15 €"},
-    {n:{fr:"Gel X",en:"Gel X"}, p:"10 €"},
-    {n:{fr:"Dual form",en:"Dual form"}, p:"20 €"},
-    {n:{fr:"Builder Gel",en:"Builder Gel"}, p:"5 – 10 €"},
-    {n:{fr:"Nail art",en:"Nail art"}, p:{fr:"dès 5 €",en:"from €5"}},
-    {n:{fr:"Dépose",en:"Removal"}, p:"5 €"}
-  ]
+  supabaseUrl: "https://cwnfqmrmqdteoadgellh.supabase.co",
+  supabaseAnonKey: "sb_publishable_rlkEAJxUMMAUDK-QQIUJrg_8wAaSrpH",
+  ownerEmail: "ngocanhtran1.20@gmail.com",
+  address: {fr:"47 Rue de Domrémy, 75013 Paris", en:"47 Rue de Domrémy, 75013 Paris"}
 };
-/* =========================================== */
 var I={
- fr:{c:" : ",pillL:"Nail studio",tag:"Nail studio · Sur rendez-vous",s1:"Protégeons vos ongles naturels",s2:"Un design à l’image de votre personnalité.",cta:"Voir les disponibilités & réserver",zalo:"Écrire sur Zalo",ig:"Instagram @annlab.paris",call:"Envoyer un message via Instagram",
-  hPrice:"Tarifs",hAvail:"Disponibilités",hBook:"Réserver",slotNote:"Choisissez un créneau libre, puis indiquez l’heure souhaitée dans la plage horaire. Les créneaux barrés sont complets.",
-  lName:"Nom",lIg:"Instagram",lPhone:"Téléphone",lSvc:"Prestation",lDate:"Date",lTime:"Heure souhaitée",lNote:"Remarques (modèle, allergies, dépose…)",phName:"Marie Dupont",phIg:"@marie.dupont",phPhone:"06 xx xx xx xx",
-  go:"Créer ma demande",outH:"Presque fini ! Envoyez la demande",sZalo:"Envoyer via Zalo",sIG:"Envoyer via Instagram",sSMS:"Envoyer par SMS",
-  outNote:"Le message est copié automatiquement : collez-le dans la conversation et envoyez-le. Le rendez-vous est confirmé uniquement après ma réponse.",
-  err:"Veuillez renseigner nom, téléphone et date.",full:"Ce créneau est complet ou indisponible, merci d’en choisir un autre.",mHello:"Bonjour, je souhaite réserver un rendez-vous :",mName:"Nom",mTel:"Tél",mSvc:"Prestation",mWhen:"Date",mNote:"Remarques",at:"à",
-  dow:["DIM","LUN","MAR","MER","JEU","VEN","SAM"],mon:["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."]},
- en:{c:": ",pillL:"Nail studio",tag:"Nail studio · By appointment",s1:"Protect the nails you were born with",s2:"Design that is unmistakably you.",cta:"View availability & book",zalo:"Message on Zalo",ig:"Instagram @annlab.paris",call:"Send a message via Instagram",
-  hPrice:"Prices",hAvail:"Availability",hBook:"Book",slotNote:"Pick a free slot, then choose your preferred time within it. Struck-through slots are full.",
-  lName:"Name",lIg:"Instagram",lPhone:"Phone",lSvc:"Service",lDate:"Date",lTime:"Preferred time",lNote:"Notes (design, allergies, removal…)",phName:"Jane Doe",phIg:"@jane.doe",phPhone:"+33 6 xx xx xx xx",
-  go:"Create booking request",outH:"Almost done! Send your request",sZalo:"Send via Zalo",sIG:"Send via Instagram",sSMS:"Send via SMS",
-  outNote:"The message is copied automatically: paste it into the chat and send it. Your appointment is only confirmed once I reply.",
-  err:"Please enter your name, phone and a date.",full:"This slot is full or unavailable, please choose another one.",mHello:"Hello, I would like to book an appointment:",mName:"Name",mTel:"Phone",mSvc:"Service",mWhen:"Date",mNote:"Notes",at:"at",
-  dow:["SUN","MON","TUE","WED","THU","FRI","SAT"],mon:["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]}
+ fr:{c:" : ",tag:"Nail studio · Sur rendez-vous",s1:"Protégeons vos ongles naturels",s2:"Un design à l’image de votre personnalité.",cta:"Voir les disponibilités & réserver",ig:"Instagram @annlab.paris",call:"Envoyer un message via Instagram",hPrice:"Tarifs",hAvail:"Disponibilités",hBook:"Réserver",slotNote:"Choisissez un créneau libre, puis indiquez l’heure souhaitée dans la plage horaire. Les créneaux barrés sont complets.",lName:"Nom",lIg:"Instagram",lPhone:"Téléphone",lSvc:"Prestation",lDate:"Date",lTime:"Heure souhaitée",lNote:"Remarques (modèle, allergies, dépose…)",phName:"Marie Dupont",phIg:"@marie.dupont",phPhone:"06 xx xx xx xx",go:"Créer ma demande",outH:"Demande enregistrée",sIG:"Ouvrir Instagram",outNote:"Votre demande est enregistrée en attente. Envoyez un message Instagram pour échanger ; le rendez-vous sera confirmé après ma réponse.",err:"Veuillez renseigner nom, téléphone et date.",full:"Ce créneau est complet ou indisponible, merci d’en choisir un autre.",mHello:"Bonjour, je viens d’envoyer une demande de rendez-vous :",mName:"Nom",mTel:"Tél",mSvc:"Prestation",mWhen:"Date",mNote:"Remarques",at:"à",dow:["DIM","LUN","MAR","MER","JEU","VEN","SAM"],mon:["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."]},
+ en:{c:": ",tag:"Nail studio · By appointment",s1:"Protect the nails you were born with",s2:"Design that is unmistakably you.",cta:"View availability & book",ig:"Instagram @annlab.paris",call:"Send a message via Instagram",hPrice:"Prices",hAvail:"Availability",hBook:"Book",slotNote:"Pick an available block, then choose your preferred time within it. Struck-through blocks are full.",lName:"Name",lIg:"Instagram",lPhone:"Phone",lSvc:"Service",lDate:"Date",lTime:"Preferred time",lNote:"Notes (design, allergies, removal…)",phName:"Jane Doe",phIg:"@jane.doe",phPhone:"+33 6 xx xx xx xx",go:"Create booking request",outH:"Request saved",sIG:"Open Instagram",outNote:"Your request is saved as pending. Message me on Instagram; your appointment is confirmed only after I reply.",err:"Please enter your name, phone and date.",full:"This block is full or unavailable. Please choose another one.",mHello:"Hello, I have just sent a booking request:",mName:"Name",mTel:"Phone",mSvc:"Service",mWhen:"Date",mNote:"Notes",at:"at",dow:["SUN","MON","TUE","WED","THU","FRI","SAT"],mon:["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]}
 };
-var $=function(i){return document.getElementById(i)};
-var L="fr";
-try{var sv0=localStorage.getItem("lang");if(sv0==="fr"||sv0==="en")L=sv0;else if(/^en/i.test(navigator.language||""))L="en"}catch(e){if(/^en/i.test(navigator.language||""))L="en"}
-
-$("lnkIG").href="https://www.instagram.com/"+CFG.instagram+"/";
-$("lnkCall").href="https://ig.me/m/"+CFG.instagram;
-function mins(h){var a=h.split(":");return parseInt(a[0],10)*60+parseInt(a[1],10)}
-function hhmm(m){return String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0")}
-function fillTimes(sel){$("ftime").innerHTML=CFG.slots.map(function(s){var o="";for(var m=mins(s.k);m<=mins(s.to);m+=15)o+='<option>'+hhmm(m)+'</option>';return '<optgroup label="'+s.n[L]+' '+s.k+'–'+s.to+'">'+o+'</optgroup>'}).join("");if(sel)$("ftime").value=sel}
-function slotOf(t){var m=mins(t),r=null;CFG.slots.forEach(function(s){if(m>=mins(s.k)&&m<=mins(s.to))r=s});return r}
-var today=new Date();today.setMinutes(today.getMinutes()-today.getTimezoneOffset());
-$("fdate").min=today.toISOString().slice(0,10);
-function pr(p){return typeof p==="string"?p:p[L]}
-
-var state;try{state=JSON.parse($("state").textContent)}catch(e){state={full:[]}}
-var full=new Set(state.full||[]);
-var db=null, ownerUser=null, scheduleChannel=null;
-var SUPABASE_READY = !!(window.supabase && CFG.supabaseUrl.indexOf("https://")===0 &&
-  CFG.supabaseAnonKey && CFG.supabaseAnonKey!=="YOUR_SUPABASE_ANON_KEY");
-if(SUPABASE_READY){try{db=window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey)}catch(e){db=null}}
-function setSyncStatus(message,isError){
-  var el=$("syncStatus");if(!el)return;
-  el.textContent=message;el.style.color=isError?"#c0392b":"";
+var $=function(id){return document.getElementById(id)};
+var L="en";try{var saved=localStorage.getItem("lang");if(saved==="fr"||saved==="en")L=saved;else if(/^en/i.test(navigator.language||""))L="en"}catch(e){}
+var db=null, ownerUser=null, services=[], availability=[], selectedSlot=null, selectedBookingId=null;
+var READY=!!(window.supabase&&CFG.supabaseUrl.indexOf("https://")===0&&CFG.supabaseAnonKey&&CFG.supabaseAnonKey!=="YOUR_SUPABASE_ANON_KEY");
+if(READY){try{db=window.supabase.createClient(CFG.supabaseUrl,CFG.supabaseAnonKey)}catch(e){db=null}}
+function status(msg,bad){var el=$("syncStatus");if(el){el.textContent=msg;el.style.color=bad?"#c0392b":""}}
+function esc(v){return String(v==null?"":v).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+function todayISO(){var d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
+function dateISO(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
+function niceDate(v){var a=v.split("-");return a[2]+"/"+a[1]+"/"+a[0]}
+function timeHM(v){return String(v||"").slice(0,5)}
+function priceLabel(s){var a=Number(s.price_from).toLocaleString("fr-FR");var b=s.price_to==null?"":Number(s.price_to).toLocaleString("fr-FR");return b&&b!==a?a+"–"+b+" €":a+" €"}
+function serviceName(s){return L==="fr"?(s.name_fr||s.name_en):(s.name_en||s.name_fr)}
+async function loadServices(){
+ if(!db)return;var r=await db.from("services").select("id,slug,name_vi,name_fr,name_en,description_vi,description_fr,description_en,price_from,price_to,currency,is_active,sort_order").eq("is_active",true).order("sort_order");if(r.error)throw r.error;services=r.data||[];renderServices();
 }
-async function loadOnlineSchedule(){
-  if(!db)return;
-  var result=await db.from("studio_schedule").select("full").eq("id",1).maybeSingle();
-  if(result.error)throw result.error;
-  if(result.data && Array.isArray(result.data.full)){full=new Set(result.data.full);renderSlots()}
+function renderServices(){
+ $("services").innerHTML=services.map(function(s,i){var desc=L==="fr"?s.description_fr:s.description_en;return '<div class="svc"><span class="idx">['+String(i+1).padStart(2,"0")+']</span><div>'+esc(serviceName(s))+(desc?'<small>'+esc(desc)+'</small>':'')+'</div><div class="price">'+esc(priceLabel(s))+'</div></div>'}).join("");
+ var old=$("fsvc").value;$("fsvc").innerHTML=services.map(function(s){return '<option value="'+esc(s.id)+'">'+esc(serviceName(s))+' · '+esc(priceLabel(s))+'</option>'}).join("");if(services.some(function(s){return s.id===old}))$("fsvc").value=old;
 }
-function applyOwnerSession(user){
-  ownerUser=user||null;
-  $("ownerPanel").style.display=ownerUser?"block":"none";
-  $("ownerLoginForm").style.display="none";
-  $("ownerLogin").style.display=ownerUser?"none":"block";
-  if(!ownerUser){owner=false;$("ownMode").checked=false;renderSlots()}
-  if(ownerUser){$("ownerStatus").textContent="Connecté : "+(ownerUser.email||"compte propriétaire");$("syncStatus").textContent="Synchronisation en ligne activée."}
-}
-async function startRealtimeSync(){
-  if(!db)return;
-  if(scheduleChannel)db.removeChannel(scheduleChannel);
-  scheduleChannel=db.channel("studio-schedule-live")
-    .on("postgres_changes",{event:"*",schema:"public",table:"studio_schedule",filter:"id=eq.1"},function(payload){
-      if(payload.new && Array.isArray(payload.new.full)){
-        full=new Set(payload.new.full);renderSlots();
-        setSyncStatus("Planning synchronisé — dernière mise à jour reçue.");
-      }
-    }).subscribe();
-}
-function ymd(d){var t=new Date(d);t.setMinutes(t.getMinutes()-t.getTimezoneOffset());return t.toISOString().slice(0,10)}
-var dayList=[];for(var i=0;i<14;i++){var dd=new Date();dd.setDate(dd.getDate()+i);dayList.push(dd)}
-var selDay=null,owner=false,chosen=null,text="";
-dayList.some(function(d){if(CFG.offDays.indexOf(d.getDay())<0){selDay=ymd(d);return true}});
-function renderDays(){
-  $("days").innerHTML=dayList.map(function(d){var k=ymd(d),off=CFG.offDays.indexOf(d.getDay())>=0;
-    return '<button class="day'+(k===selDay?' sel':'')+'" data-k="'+k+'"'+(off?' disabled':'')+'>'+I[L].dow[d.getDay()]+'<b>'+d.getDate()+'</b>'+I[L].mon[d.getMonth()]+'</button>'}).join("");
+function buildDays(){var arr=[];for(var i=0;i<14;i++){var d=new Date();d.setDate(d.getDate()+i);arr.push(d)}$("days").innerHTML=arr.map(function(d){var k=dateISO(d);return '<button class="day'+(k===$("fdate").value?' sel':'')+'" data-date="'+k+'">'+I[L].dow[d.getDay()]+'<b>'+d.getDate()+'</b>'+I[L].mon[d.getMonth()]+'</button>'}).join("")}
+function renderDays(){buildDays()}
+async function loadAvailability(){
+ if(!db)return;var from=todayISO(),to=new Date();to.setDate(to.getDate()+13);var r=await db.rpc("get_public_slots",{p_from:from,p_to:dateISO(to)});if(r.error)throw r.error;availability=r.data||[];renderDays();renderSlots();
 }
 function renderSlots(){
-  var now=new Date(),todayK=ymd(now),nowMin=now.getHours()*60+now.getMinutes();
-  $("slots").innerHTML=CFG.slots.map(function(s){var h=s.k;
-    var key=selDay+"|"+h,hp=h.split(":"),past=selDay===todayK&&(parseInt(hp[0],10)*60+parseInt(hp[1],10))<=nowMin;
-    return '<button class="slot'+((full.has(key)||past)?' full':'')+(chosen===key?' chosen':'')+'" data-h="'+h+'"><span>'+s.n[L]+'</span><span>'+h+' – '+s.to+'</span></button>'}).join("");
+ var date=$("fdate").value;var rows=availability.filter(function(x){return x.appointment_date===date});
+ if(!rows.length){$("slots").innerHTML='<p class="note">'+(L==="fr"?"Aucun créneau disponible pour cette date.":"No slots available for this date.")+'</p>';return}
+ $("slots").innerHTML=rows.map(function(x){var available=x.is_available;var chosen=selectedSlot&&selectedSlot.slot_id===x.slot_id;return '<button type="button" class="slot'+(!available?' full':'')+(chosen?' chosen':'')+'" data-slot="'+esc(x.slot_id)+'" '+(!available?'disabled':'')+'><span>'+esc(L==="fr"?(x.start_time<"12:00:00"?"Matin":(x.start_time<"17:00:00"?"Après-midi":"Soir")):(x.start_time<"12:00:00"?"Morning":(x.start_time<"17:00:00"?"Afternoon":"Evening")))+'</span><span>'+timeHM(x.start_time)+' – '+timeHM(x.end_time)+(available?'':' · '+(L==="fr"?"COMPLET":"FULL"))+'</span></button>'}).join("");
 }
-function applyLang(){
-  var t=I[L];document.documentElement.lang=L;
-  document.querySelectorAll("[data-i]").forEach(function(el){el.textContent=t[el.getAttribute("data-i")]});
-  $("fname").placeholder=t.phName;$("figr").placeholder=t.phIg;$("fphone").placeholder=t.phPhone;
-  $("addr").textContent=CFG.address[L];
-  $("services").innerHTML=CFG.services.map(function(s,i){return '<div class="svc"><span class="idx">['+String(i+1).padStart(2,"0")+']</span><div>'+s.n[L]+(s.d?'<small>'+s.d[L]+'</small>':'')+'</div><div class="price">'+pr(s.p)+'</div></div>'}).join("");
-  var si=$("fsvc").selectedIndex;
-  $("fsvc").innerHTML=CFG.services.map(function(s){return '<option>'+s.n[L]+'</option>'}).join("");
-  $("fsvc").selectedIndex=si>0?si:0;
-  fillTimes($("ftime").value||CFG.slots[0].k);
-  document.querySelectorAll(".lang button").forEach(function(b){b.className=b.getAttribute("data-l")===L?"on":""});
-  $("out").style.display="none";$("err").style.display="none";
-  renderDays();renderSlots();
-}
+function renderTimes(){var slot=selectedSlot;if(!slot){$("ftime").innerHTML='<option value="">—</option>';return}var start=timeHM(slot.start_time).split(":").map(Number),end=timeHM(slot.end_time).split(":").map(Number),a=start[0]*60+start[1],b=end[0]*60+end[1],step=15,opts="";for(var m=a;m<b;m+=step){var t=String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0");opts+='<option value="'+t+'">'+t+'</option>'}$("ftime").innerHTML=opts||'<option value="">—</option>'}
+function applyLang(){var t=I[L];document.documentElement.lang=L;document.querySelectorAll("[data-i]").forEach(function(el){var k=el.getAttribute("data-i");if(t[k])el.textContent=t[k]});$("fname").placeholder=t.phName;$("figr").placeholder=t.phIg;$("fphone").placeholder=t.phPhone;$("addr").textContent=CFG.address[L];document.querySelectorAll(".lang button").forEach(function(b){b.className=b.getAttribute("data-l")===L?"on":""});renderServices();buildDays();renderSlots()}
 document.querySelector(".lang").onclick=function(e){var b=e.target.closest("button");if(!b)return;L=b.getAttribute("data-l");try{localStorage.setItem("lang",L)}catch(x){}applyLang()};
-$("days").onclick=function(e){var b=e.target.closest(".day");if(!b||b.disabled)return;selDay=b.dataset.k;renderDays();renderSlots()};
-$("slots").onclick=function(e){
-  var b=e.target.closest(".slot");if(!b)return;var h=b.dataset.h,key=selDay+"|"+h;
-  if(owner && ownerUser){if(full.has(key))full.delete(key);else full.add(key);$("ownSave").style.display="block";renderSlots();return}
-  if(b.classList.contains("full"))return;
-  chosen=key;$("fdate").value=selDay;$("ftime").value=h;renderSlots();
-  $("dat-lich").scrollIntoView({behavior:"smooth"});
-};
-function fmtDate(v){var p=v.split("-");return parseInt(p[2],10)+" "+I[L].mon[parseInt(p[1],10)-1]+" "+p[0]}
-function copy(t){
-  try{if(navigator.clipboard)navigator.clipboard.writeText(t).catch(function(){})}catch(e){}
-  try{var a=document.createElement("textarea");a.value=t;a.style.position="fixed";a.style.opacity="0";document.body.appendChild(a);a.select();document.execCommand("copy");document.body.removeChild(a)}catch(e){}
+$("days").onclick=async function(e){var b=e.target.closest("button[data-date]");if(!b)return;$("fdate").value=b.dataset.date;selectedSlot=null;renderDays();renderSlots();renderTimes()};
+$("slots").onclick=function(e){var b=e.target.closest("button[data-slot]");if(!b||b.disabled)return;var row=availability.find(function(x){return x.appointment_date===$("fdate").value&&x.slot_id===b.dataset.slot});if(!row)return;selectedSlot=row;renderSlots();renderTimes();$("dat-lich").scrollIntoView({behavior:"smooth",block:"start"})};
+$("fdate").min=todayISO();$("fdate").value=todayISO();$("fdate").onchange=function(){selectedSlot=null;renderDays();renderSlots();renderTimes()};
+function applyOwner(user){ownerUser=user||null;$("ownerPanel").style.display=ownerUser?"block":"none";$("ownerLogin").style.display=ownerUser?"none":"block";if(ownerUser){$("ownerStatus").textContent="Connecté : "+(ownerUser.email||"");loadDashboard().catch(function(e){status("Dashboard error: "+e.message,true)})}}
+async function submitBooking(){
+ var err=$("err"),name=$("fname").value.trim(),phone=$("fphone").value.trim(),date=$("fdate").value,svc=$("fsvc").value,time=$("ftime").value;
+ if(!name||!phone||!date||!svc||!selectedSlot||!time){err.textContent=I[L].err+" / "+(L==="fr"?"Choisissez aussi un créneau et une heure.":"Please choose a block and time.");err.style.display="block";return}
+ if(!db){err.textContent=L==="fr"?"Le système de réservation n'est pas encore configuré.":"Booking system is not configured yet.";err.style.display="block";return}
+ err.style.display="none";var btn=$("go");btn.disabled=true;btn.textContent=L==="fr"?"Envoi…":"Submitting…";
+ try{
+  var ig=$("figr").value.trim().replace(/^@+/,"");var args={p_full_name:name,p_phone:phone,p_service_id:svc,p_appointment_date:date,p_slot_id:selectedSlot.slot_id,p_requested_time:time+":00",p_email:$("femail").value.trim()||null,p_instagram:ig||null,p_customer_note:$("fnote").value.trim()||null};
+  var r=await db.rpc("create_booking_request",args);if(r.error)throw r.error;selectedBookingId=r.data;
+  var service=services.find(function(x){return x.id===svc});var msg=I[L].mHello+"\n• "+I[L].mName+I[L].c+name+(ig?"\n• Instagram : @"+ig:"")+"\n• "+I[L].mTel+I[L].c+phone+"\n• "+I[L].mSvc+I[L].c+(service?serviceName(service):"")+"\n• "+I[L].mWhen+I[L].c+niceDate(date)+" "+I[L].at+" "+time+"\n• Référence : "+r.data+($("fnote").value.trim()?"\n• "+I[L].mNote+I[L].c+$("fnote").value.trim():"");
+  $("msg").textContent=msg;$("out").style.display="block";$("out").scrollIntoView({behavior:"smooth",block:"nearest"});await loadAvailability();status(L==="fr"?"Demande enregistrée — en attente de confirmation.":"Request saved — pending confirmation.");
+ }catch(e){err.textContent=e.message||I[L].full;err.style.display="block";await loadAvailability().catch(function(){})}
+ finally{btn.disabled=false;btn.textContent=I[L].go}
 }
-$("go").onclick=function(){
-  var t=I[L],n=$("fname").value.trim(),p=$("fphone").value.trim(),d=$("fdate").value,e=$("err");
-  if(!n||!p||!d){e.textContent=t.err;e.style.display="block";return}
-  e.style.display="none";
-  var dt=new Date(d+"T12:00:00"),sl=slotOf($("ftime").value);
-  if(CFG.offDays.indexOf(dt.getDay())>=0||(sl&&full.has(d+"|"+sl.k))){e.textContent=t.full;e.style.display="block";return}
-  var note=$("fnote").value.trim(),ig=$("figr").value.trim().replace(/^@+/,"");ig=ig?"@"+ig:"";
-  text=t.mHello+"\n• "+t.mName+t.c+n+(ig?"\n• Instagram"+t.c+ig:"")+"\n• "+t.mTel+t.c+p+"\n• "+t.mSvc+t.c+$("fsvc").value+"\n• "+t.mWhen+t.c+fmtDate(d)+" "+t.at+" "+$("ftime").value+(note?"\n• "+t.mNote+t.c+note:"");
-  $("msg").textContent=text;
-  $("out").style.display="block";
-  $("out").scrollIntoView({behavior:"smooth",block:"nearest"});
-};
-
-$("sIG").onclick=function(){copy(text);window.open("https://ig.me/m/"+CFG.instagram,"_blank")};
-// Accès propriétaire via Supabase Auth.
-$("ownerLogin").onclick=function(){
-  if(!SUPABASE_READY||!db){setSyncStatus("Configuration Supabase manquante : renseignez l'URL et la clé anon dans CFG.",true);return}
-  $("ownerLoginForm").style.display="block";$("ownerError").style.display="none";
-  $("ownerEmail").value=CFG.ownerEmail!=="YOUR_OWNER_EMAIL"?CFG.ownerEmail:"";
-};
+$("go").onclick=submitBooking;
+$("sIG").onclick=function(){var msg=$("msg").textContent;try{navigator.clipboard.writeText(msg)}catch(e){}window.open("https://ig.me/m/"+CFG.instagram,"_blank","noopener")};
+$("ownerLogin").onclick=function(){if(!db){status("Configurez d'abord l'URL et la clé Supabase.",true);return}$("ownerLoginForm").style.display="block";$("ownerError").style.display="none";$("ownerEmail").value=CFG.ownerEmail==="YOUR_OWNER_EMAIL"?"":CFG.ownerEmail};
 $("ownerCancel").onclick=function(){$("ownerLoginForm").style.display="none"};
-$("ownerSignIn").onclick=async function(){
-  var email=$("ownerEmail").value.trim(),password=$("ownerPassword").value;
-  $("ownerError").style.display="none";
-  if(!email||!password){$("ownerError").textContent="Veuillez saisir votre email et votre mot de passe.";$("ownerError").style.display="block";return}
-  var btn=this;btn.disabled=true;btn.textContent="Connexion…";
-  try{
-    var result=await db.auth.signInWithPassword({email:email,password:password});
-    if(result.error)throw result.error;
-    if(CFG.ownerEmail!=="YOUR_OWNER_EMAIL" && email.toLowerCase()!==CFG.ownerEmail.toLowerCase()){
-      await db.auth.signOut();throw new Error("Ce compte n'est pas autorisé comme propriétaire.");
-    }
-    applyOwnerSession(result.data.user);$("ownerPassword").value="";
-    setSyncStatus("Connexion réussie. Vous pouvez modifier le planning.");
-  }catch(e){$("ownerError").textContent=e.message||"Connexion impossible.";$("ownerError").style.display="block"}
-  finally{btn.disabled=false;btn.textContent="Đăng nhập"}
-};
-$("ownerLogout").onclick=async function(){if(db)await db.auth.signOut();applyOwnerSession(null);setSyncStatus("Vous êtes déconnecté.")};
-$("ownMode").onchange=function(){owner=!!ownerUser&&this.checked;renderSlots()};
-$("ownSave").onclick=async function(){
-  if(!db||!ownerUser){setSyncStatus("Veuillez vous connecter avant d'enregistrer.",true);return}
-  var btn=this;btn.disabled=true;btn.textContent="Đang lưu…";
-  try{
-    var values=Array.from(full).sort();
-    var result=await db.from("studio_schedule").update({full:values,updated_at:new Date().toISOString()}).eq("id",1).select("id");
-    if(result.error)throw result.error;
-    if(!result.data||!result.data.length)throw new Error("Aucune ligne mise à jour. Vérifiez la ligne id=1 et les règles RLS Supabase.");
-    $("state").textContent=JSON.stringify({full:values});$("ownSave").style.display="none";
-    setSyncStatus("Đã lưu thành công. Lịch sẽ tự đồng bộ trên các thiết bị khác.");
-  }catch(e){setSyncStatus("Lỗi lưu lịch: "+(e.message||"Vui lòng thử lại."),true)}
-  finally{btn.disabled=false;btn.textContent="Lưu lịch online"}
-};
-(async function(){
-  if(!SUPABASE_READY||!db){setSyncStatus("Chưa cấu hình Supabase — lịch hiện chỉ đọc dữ liệu mặc định trong file.");return}
-  try{
-    var session=await db.auth.getSession();
-    if(session.data&&session.data.session)applyOwnerSession(session.data.session.user);
-    await loadOnlineSchedule();await startRealtimeSync();
-    db.auth.onAuthStateChange(function(event,session){applyOwnerSession(session?session.user:null)});
-    setSyncStatus("Đã kết nối lịch online.");
-  }catch(e){setSyncStatus("Không tải được lịch online: "+(e.message||"Kiểm tra cấu hình Supabase."),true)}
-})();
+$("ownerSignIn").onclick=async function(){var email=$("ownerEmail").value.trim(),password=$("ownerPassword").value;try{var r=await db.auth.signInWithPassword({email:email,password:password});if(r.error)throw r.error;if(CFG.ownerEmail!=="YOUR_OWNER_EMAIL"&&email.toLowerCase()!==CFG.ownerEmail.toLowerCase()){await db.auth.signOut();throw new Error("This email is not the configured owner email.")}$("ownerPassword").value="";$("ownerLoginForm").style.display="none";applyOwner(r.data.user)}catch(e){$("ownerError").textContent=e.message;$("ownerError").style.display="block"}};
+$("ownerLogout").onclick=async function(){await db.auth.signOut();applyOwner(null)};$("ownerRefresh").onclick=function(){loadDashboard().catch(function(e){status(e.message,true)})};
+function bookingCard(b){var c=b.customers||{},ig=(c.instagram||"").replace(/^@+/,"");return '<div style="border-bottom:1px solid var(--line);padding:12px 0"><strong>'+esc(b.customer_name_snapshot)+'</strong><br>'+esc(niceDate(b.appointment_date))+' · '+esc(timeHM(b.preferred_time))+'<br>'+esc(b.service_name_fr_snapshot)+' · '+esc(b.status)+'<br>'+esc(b.customer_phone_snapshot)+(c.email?'<br>'+esc(c.email):'')+(ig?'<br><a target="_blank" rel="noopener" href="https://www.instagram.com/'+encodeURIComponent(ig)+'/">Instagram @'+esc(ig)+'</a>':'')+(b.customer_note?'<br>Note: '+esc(b.customer_note):'')+'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><select data-status="'+esc(b.id)+'" style="flex:1;min-width:120px"><option value="pending" '+(b.status==='pending'?'selected':'')+'>pending</option><option value="confirmed" '+(b.status==='confirmed'?'selected':'')+'>confirmed</option><option value="cancelled" '+(b.status==='cancelled'?'selected':'')+'>cancelled</option><option value="completed" '+(b.status==='completed'?'selected':'')+'>completed</option><option value="no_show" '+(b.status==='no_show'?'selected':'')+'>no_show</option></select><button class="btn" data-save-status="'+esc(b.id)+'" type="button" style="width:auto;padding:6px 12px">Save</button></div></div>'}
+async function loadDashboard(){
+ var r=await db.from("bookings").select("id,appointment_date,preferred_time,status,customer_name_snapshot,customer_phone_snapshot,service_name_fr_snapshot,service_name_vi_snapshot,price_from_snapshot,price_to_snapshot,customer_note,customers(full_name,phone,email,instagram),services(name_fr,name_vi)").order("appointment_date",{ascending:true}).order("preferred_time",{ascending:true}).limit(100);if(r.error)throw r.error;
+ var rows=r.data||[],today=todayISO();
+ var active=rows.filter(function(b){return b.appointment_date>=today&&(b.status==='pending'||b.status==='confirmed')});
+ var history=rows.filter(function(b){return b.appointment_date<today||!(b.status==='pending'||b.status==='confirmed')});
+ var html=active.length?active.map(bookingCard).join(""):'<p>No active bookings.</p>';
+ html+='<details style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px"><summary style="cursor:pointer;font-weight:600">Booking history ('+history.length+')</summary><div style="padding-top:8px">'+(history.length?history.slice().reverse().map(bookingCard).join(""):'<p>No past bookings yet.</p>')+'</div></details>';
+ $("ownerBookings").innerHTML=html;
+ $("ownerBookings").querySelectorAll("button[data-save-status]").forEach(function(btn){btn.onclick=async function(){var id=this.dataset.saveStatus,sel=$("ownerBookings").querySelector('select[data-status="'+id+'"]');this.disabled=true;try{var u=await db.from("bookings").update({status:sel.value,updated_at:new Date().toISOString()}).eq("id",id);if(u.error)throw u.error;await loadDashboard();await loadAvailability();status("Booking status updated.")}catch(e){status(e.message,true)}finally{this.disabled=false}}});
+ await loadOwnerServices();
+}
+async function loadOwnerServices(){var r=await db.from("services").select("id,name_fr,name_vi,price_from,price_to,is_active,sort_order").order("sort_order");if(r.error)throw r.error;$("ownerServices").innerHTML=(r.data||[]).map(function(s){return '<div style="border-bottom:1px solid var(--line);padding:10px 0"><strong>'+esc(s.name_fr)+'</strong><div class="row"><div><label>Nom français</label><input type="text" data-name-fr="'+s.id+'" value="'+esc(s.name_fr)+'"></div><div><label>Tên tiếng Việt</label><input type="text" data-name-vi="'+s.id+'" value="'+esc(s.name_vi)+'"></div></div><div class="row"><div><label>Prix dès (€)</label><input type="number" min="0" step="0.5" data-price-from="'+s.id+'" value="'+s.price_from+'"></div><div><label>Prix max (€)</label><input type="number" min="0" step="0.5" data-price-to="'+s.id+'" value="'+(s.price_to==null?'':s.price_to)+'"></div></div><label><input type="checkbox" style="width:auto" data-active="'+s.id+'" '+(s.is_active?'checked':'')+'> Active</label><button class="btn" type="button" data-save-service="'+s.id+'" style="margin-top:8px">Save service</button></div>'}).join("");
+ $("ownerServices").querySelectorAll("button[data-save-service]").forEach(function(btn){btn.onclick=async function(){var id=this.dataset.saveService,from=$("ownerServices").querySelector('[data-price-from="'+id+'"]'),to=$("ownerServices").querySelector('[data-price-to="'+id+'"]'),active=$("ownerServices").querySelector('[data-active="'+id+'"]'),nameFr=$("ownerServices").querySelector('[data-name-fr="'+id+'"]'),nameVi=$("ownerServices").querySelector('[data-name-vi="'+id+'"]');var a=Number(from.value),b=to.value===""?null:Number(to.value);if(!Number.isFinite(a)||a<0||(b!==null&&(!Number.isFinite(b)||b<a))){status("Invalid price range.",true);return}this.disabled=true;try{var u=await db.from("services").update({name_fr:nameFr.value.trim(),name_vi:nameVi.value.trim(),price_from:a,price_to:b,is_active:active.checked,updated_at:new Date().toISOString()}).eq("id",id);if(u.error)throw u.error;await loadServices();await loadOwnerServices();status("Service updated.")}catch(e){status(e.message,true)}finally{this.disabled=false}}});
+}
 function tick(){var d=new Date();$("today").textContent=String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear()}
-tick();setInterval(tick,60000);
 function fadeTop(){var y=window.scrollY||document.documentElement.scrollTop||0;$("fade").style.opacity=Math.max(0,Math.min(1,y/160))}
-window.addEventListener("scroll",fadeTop,{passive:true});fadeTop();
 $("cta").onclick=function(e){e.preventDefault();$("lich-trong").scrollIntoView({behavior:"smooth",block:"start"})};
-$("lnkIG").onclick=function(e){e.preventDefault();var u=this.href,w=null;try{w=window.open(u,"_blank")}catch(x){}if(!w){location.href=u}};
-$("lnkCall").onclick=$("lnkIG").onclick;
-applyLang();
+$("lnkIG").href="https://www.instagram.com/"+CFG.instagram+"/";$("lnkCall").href="https://ig.me/m/"+CFG.instagram;
+$("lnkIG").onclick=$("lnkCall").onclick=function(e){e.preventDefault();window.open(this.href,"_blank","noopener")};
+(async function(){tick();window.addEventListener("scroll",fadeTop,{passive:true});fadeTop();applyLang();if(!db){status("Supabase not configured. Add Project URL and Publishable key in CFG.",true);return}try{await loadServices();await loadAvailability();var s=await db.auth.getSession();if(s.data&&s.data.session)applyOwner(s.data.session.user);db.auth.onAuthStateChange(function(ev,session){applyOwner(session?session.user:null)});status("Supabase connected.");}catch(e){status("Supabase error: "+(e.message||e),true)}})();
 </script>
 
 
